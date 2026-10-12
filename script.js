@@ -1,6 +1,6 @@
 // ============================================================
 // MANTRAWEST WEBSITE — MAIN JAVASCRIPT
-// Production-ready interaction layer
+// Multi-page website interactions and animations
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -20,6 +20,12 @@ document.addEventListener("DOMContentLoaded", () => {
   ).matches;
 
   const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+  const pageName = (
+    document.body.dataset.page ||
+    window.location.pathname.split("/").pop().replace(".html", "") ||
+    "home"
+  ).toLowerCase();
 
   // ==========================================================
   // MOBILE NAVIGATION
@@ -48,9 +54,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function closeMenu() {
-    if (!navMenu) return;
-
-    navMenu.classList.remove("is-open");
+    if (navMenu) {
+      navMenu.classList.remove("is-open");
+    }
 
     if (menuBtn) {
       menuBtn.classList.remove("is-open");
@@ -77,15 +83,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (menuBtn) {
     menuBtn.addEventListener("click", toggleMenu);
+    menuBtn.setAttribute("aria-expanded", "false");
+    menuBtn.setAttribute("aria-label", "Open navigation");
   }
 
   if (navBackdrop) {
     navBackdrop.addEventListener("click", closeMenu);
   }
 
-  // ==========================================================
-  // CLOSE MOBILE MENU WHEN WINDOW BECOMES DESKTOP
-  // ==========================================================
+  // Close the mobile menu when the screen becomes desktop-sized.
 
   const desktopBreakpoint = window.matchMedia("(min-width: 1024px)");
 
@@ -102,7 +108,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // NAVIGATION LINKS / SMOOTH SCROLL
+  // NAVIGATION LINKS
+  // Supports both separate pages and same-page anchors.
   // ==========================================================
 
   const navLinks = $$(".nav-link");
@@ -111,49 +118,64 @@ document.addEventListener("DOMContentLoaded", () => {
     link.addEventListener("click", (event) => {
       const href = link.getAttribute("href");
 
-      if (!href || !href.startsWith("#") || href === "#") {
+      if (!href || href === "#") {
         closeMenu();
         return;
       }
 
-      const target = document.querySelector(href);
+      let targetURL;
 
-      if (!target) {
+      try {
+        targetURL = new URL(href, window.location.href);
+      } catch (error) {
         closeMenu();
         return;
       }
 
-      event.preventDefault();
+      const samePage =
+        targetURL.origin === window.location.origin &&
+        targetURL.pathname === window.location.pathname;
 
-      const header = $("header");
-      const headerHeight = header ? header.offsetHeight : 0;
+      // Let the browser navigate normally to another HTML page.
+      if (!samePage) {
+        closeMenu();
+        return;
+      }
 
-      const targetPosition =
-        target.getBoundingClientRect().top + window.scrollY - headerHeight - 20;
+      // If the link points to an anchor on this page, scroll to it.
+      if (targetURL.hash) {
+        const target = document.getElementById(
+          decodeURIComponent(targetURL.hash.slice(1)),
+        );
 
-      if (prefersReducedMotion) {
-        window.scrollTo(0, Math.max(targetPosition, 0));
-      } else {
+        if (!target) {
+          closeMenu();
+          return;
+        }
+
+        event.preventDefault();
+
+        const header = $("header");
+        const headerHeight = header ? header.offsetHeight : 0;
+
+        const targetPosition =
+          target.getBoundingClientRect().top +
+          window.scrollY -
+          headerHeight -
+          20;
+
         window.scrollTo({
           top: Math.max(targetPosition, 0),
-          behavior: "smooth",
+          behavior: prefersReducedMotion ? "auto" : "smooth",
         });
+
+        // Update the URL hash without causing another jump.
+        history.replaceState(null, "", targetURL.hash);
       }
 
       closeMenu();
     });
   });
-
-  // ==========================================================
-  // ABOUT NAVIGATION
-  // ==========================================================
-
-  const aboutLink = $('[data-nav="about"]');
-  const aboutSection = $("#about-preview");
-
-  if (aboutLink && aboutSection) {
-    aboutLink.setAttribute("href", "#about-preview");
-  }
 
   // ==========================================================
   // HEADER SCROLL STATE
@@ -164,11 +186,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateHeaderState() {
     if (!siteHeader) return;
 
-    if (window.scrollY > 30) {
-      siteHeader.classList.add("is-scrolled");
-    } else {
-      siteHeader.classList.remove("is-scrolled");
-    }
+    siteHeader.classList.toggle("is-scrolled", window.scrollY > 30);
   }
 
   window.addEventListener("scroll", updateHeaderState, {
@@ -186,17 +204,17 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateScrollProgress() {
     if (!scrollProgress) return;
 
-    const documentHeight =
+    const scrollableHeight =
       document.documentElement.scrollHeight - window.innerHeight;
 
-    if (documentHeight <= 0) {
+    if (scrollableHeight <= 0) {
       scrollProgress.style.width = "0%";
       return;
     }
 
-    const percentage = (window.scrollY / documentHeight) * 100;
+    const percentage = (window.scrollY / scrollableHeight) * 100;
 
-    scrollProgress.style.width = `${Math.min(percentage, 100)}%`;
+    scrollProgress.style.width = `${clamp(percentage, 0, 100)}%`;
   }
 
   window.addEventListener("scroll", updateScrollProgress, {
@@ -208,7 +226,8 @@ document.addEventListener("DOMContentLoaded", () => {
   updateScrollProgress();
 
   // ==========================================================
-  // SCROLL REVEAL ANIMATION
+  // SCROLL REVEAL ANIMATIONS
+  // Elements with class "reveal" animate into view.
   // ==========================================================
 
   const revealElements = $$(".reveal");
@@ -239,150 +258,161 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // ACTIVE NAVIGATION LINK
+  // ACTIVE NAVIGATION
+  // Highlights the current page in the navigation menu.
   // ==========================================================
 
-  const sections = $$("main section[id]");
+  const pageNavigationMap = {
+    home: "home",
+    services: "services",
+    about: "about",
+    projects: "projects",
+    blog: "projects",
+    contact: "contact",
+  };
 
   function updateActiveNavigation() {
-    if (!sections.length || !navLinks.length) return;
-
-    const scrollPosition =
-      window.scrollY + (siteHeader ? siteHeader.offsetHeight : 0) + 100;
-
-    let currentSection = "";
-
-    sections.forEach((section) => {
-      const sectionTop = section.offsetTop;
-      const sectionBottom = sectionTop + section.offsetHeight;
-
-      if (scrollPosition >= sectionTop && scrollPosition < sectionBottom) {
-        currentSection = section.id;
-      }
-    });
-
     navLinks.forEach((link) => {
-      const href = link.getAttribute("href");
+      const navKey = link.dataset.nav || "";
+      const navPage = pageNavigationMap[navKey] || navKey;
 
-      link.classList.remove("active");
-      link.classList.remove("is-active");
+      const isCurrentPage = navPage === pageName;
 
-      if (currentSection && href === `#${currentSection}`) {
-        link.classList.add("active");
-        link.classList.add("is-active");
+      link.classList.toggle("active", isCurrentPage);
+      link.classList.toggle("is-active", isCurrentPage);
+
+      if (isCurrentPage) {
+        link.setAttribute("aria-current", "page");
+      } else {
+        link.removeAttribute("aria-current");
       }
     });
   }
-
-  window.addEventListener("scroll", updateActiveNavigation, { passive: true });
-
-  window.addEventListener("resize", updateActiveNavigation);
 
   updateActiveNavigation();
 
   // ==========================================================
   // SERVICE REQUEST BUTTONS
+  // Send visitors to the contact page with their chosen service.
   // ==========================================================
 
   const serviceButtons = $$("[data-service-request]");
 
-  const contactMessageField = $("#message");
-
   serviceButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const service = button.getAttribute("data-service-request");
+      const service = button.getAttribute("data-service-request")?.trim();
 
       if (!service) return;
 
-      const contactSection = $("#contact");
+      const contactForm = $("#contactForm");
+      const messageField = $("#message");
 
-      if (contactMessageField) {
-        contactMessageField.value = `I would like to enquire about: ${service}`;
+      // If the contact form is on this page, populate it directly.
+      if (contactForm && messageField) {
+        messageField.value = `I would like to enquire about: ${service}`;
 
-        contactMessageField.dispatchEvent(
-          new Event("input", {
-            bubbles: true,
-          }),
-        );
-      }
+        messageField.dispatchEvent(new Event("input", { bubbles: true }));
 
-      if (contactSection) {
         const header = $("header");
         const headerHeight = header ? header.offsetHeight : 0;
 
-        const position =
-          contactSection.getBoundingClientRect().top +
+        const target = $("#quote-form") || $("#contact") || contactForm;
+
+        const targetPosition =
+          target.getBoundingClientRect().top +
           window.scrollY -
           headerHeight -
           20;
 
-        if (prefersReducedMotion) {
-          window.scrollTo(0, Math.max(position, 0));
-        } else {
-          window.scrollTo({
-            top: Math.max(position, 0),
-            behavior: "smooth",
-          });
-        }
+        window.scrollTo({
+          top: Math.max(targetPosition, 0),
+          behavior: prefersReducedMotion ? "auto" : "smooth",
+        });
 
-        setTimeout(
-          () => {
-            if (contactMessageField) {
-              contactMessageField.focus();
-            }
-          },
-          prefersReducedMotion ? 0 : 500,
-        );
+        messageField.focus();
+        return;
       }
+
+      // Otherwise, navigate to the separate contact page.
+      const params = new URLSearchParams();
+      params.set("service", service);
+
+      window.location.href = `contact.html?${params.toString()}#quote-form`;
     });
   });
 
   // ==========================================================
-  // CONTACT FORM
+  // CONTACT FORM — READ SERVICE FROM URL
+  // Example: contact.html?service=EPCIC#quote-form
   // ==========================================================
 
   const contactForm = $("#contactForm");
   const formStatus = $("#formStatus");
   const contactSubmit = $("#contactSubmit");
 
+  const contactMessageField = contactForm ? $("#message", contactForm) : null;
+
+  if (contactMessageField) {
+    const params = new URLSearchParams(window.location.search);
+    const selectedService = params.get("service");
+
+    if (selectedService && !contactMessageField.value.trim()) {
+      contactMessageField.value = `I would like to enquire about: ${selectedService}`;
+    }
+  }
+
+  // ==========================================================
+  // CONTACT FORM VALIDATION
+  // IMPORTANT: A backend or form service is needed to deliver
+  // submitted enquiries to MantraWest.
+  // ==========================================================
+
   if (contactForm) {
     contactForm.addEventListener("submit", (event) => {
       event.preventDefault();
 
       const nameField = $("#name", contactForm);
-
       const emailField = $("#email", contactForm);
-
       const messageField = $("#message", contactForm);
 
       const name = nameField?.value.trim() || "";
-
       const email = emailField?.value.trim() || "";
-
       const message = messageField?.value.trim() || "";
 
-      // ------------------------------------------------------
-      // VALIDATION
-      // ------------------------------------------------------
+      function showFormStatus(messageText, statusType) {
+        if (!formStatus) return;
 
+        formStatus.textContent = messageText;
+        formStatus.className = "form-status";
+
+        if (statusType) {
+          formStatus.classList.add(statusType);
+        }
+
+        formStatus.setAttribute("role", "status");
+        formStatus.setAttribute("aria-live", "polite");
+      }
+
+      // Validate required fields.
       if (!name || !email || !message) {
-        if (formStatus) {
-          formStatus.textContent = "Please complete all required fields.";
+        showFormStatus("Please complete all required fields.", "error");
 
-          formStatus.className = "form-status error";
+        if (!name && nameField) {
+          nameField.focus();
+        } else if (!email && emailField) {
+          emailField.focus();
+        } else if (messageField) {
+          messageField.focus();
         }
 
         return;
       }
 
+      // Validate email address.
       const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
       if (!emailPattern.test(email)) {
-        if (formStatus) {
-          formStatus.textContent = "Please enter a valid email address.";
-
-          formStatus.className = "form-status error";
-        }
+        showFormStatus("Please enter a valid email address.", "error");
 
         if (emailField) {
           emailField.focus();
@@ -391,46 +421,28 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // ------------------------------------------------------
-      // SUBMIT STATE
-      // ------------------------------------------------------
-
+      // Prevent repeated submissions while processing.
       if (contactSubmit) {
         contactSubmit.disabled = true;
         contactSubmit.setAttribute("aria-busy", "true");
-
         contactSubmit.textContent = "Sending...";
       }
 
-      if (formStatus) {
-        formStatus.textContent = "Preparing your enquiry...";
+      showFormStatus("Your details have been validated.", "success");
 
-        formStatus.className = "form-status";
+      /*
+       * No backend submission is performed here.
+       *
+       * Connect this form to a secure server endpoint or a
+       * trusted form service before treating enquiries as
+       * delivered to MantraWest.
+       */
+
+      if (contactSubmit) {
+        contactSubmit.disabled = false;
+        contactSubmit.removeAttribute("aria-busy");
+        contactSubmit.textContent = "Send Message";
       }
-
-      // ------------------------------------------------------
-      // FRONTEND SUBMISSION
-      // ------------------------------------------------------
-      // This keeps the website functional without pretending
-      // that an external email service has already been wired.
-      // ------------------------------------------------------
-
-      setTimeout(() => {
-        if (formStatus) {
-          formStatus.textContent = "Thank you. Your enquiry has been received.";
-
-          formStatus.className = "form-status success";
-        }
-
-        contactForm.reset();
-
-        if (contactSubmit) {
-          contactSubmit.disabled = false;
-          contactSubmit.removeAttribute("aria-busy");
-
-          contactSubmit.textContent = "Send Message";
-        }
-      }, 1000);
     });
   }
 
@@ -457,12 +469,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.classList.add("modal-open");
 
     const firstFocusable =
-      portalModalClose || $("button, a, input, select, textarea", portalModal);
+      portalModalClose ||
+      $("button, a[href], input, select, textarea", portalModal);
 
     if (firstFocusable) {
-      setTimeout(() => {
-        firstFocusable.focus();
-      }, 50);
+      firstFocusable.focus();
     }
   }
 
@@ -496,21 +507,23 @@ document.addEventListener("DOMContentLoaded", () => {
     portalModalBackdrop.addEventListener("click", closePortalModal);
   }
 
+  if (portalModal) {
+    portalModal.setAttribute("hidden", "");
+  }
+
   // ==========================================================
-  // ESCAPE KEY
+  // KEYBOARD ACCESSIBILITY
+  // Escape closes menus and modals.
   // ==========================================================
 
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-
-    closeMenu();
-    closePortalModal();
+    if (event.key === "Escape") {
+      closeMenu();
+      closePortalModal();
+    }
   });
 
-  // ==========================================================
-  // MODAL TAB FOCUS MANAGEMENT
-  // ==========================================================
-
+  // Keep keyboard focus inside the open modal.
   document.addEventListener("keydown", (event) => {
     if (
       event.key !== "Tab" ||
@@ -520,15 +533,24 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const focusable = $$(
-      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    const focusableElements = $$(
+      [
+        "button:not([disabled])",
+        "a[href]",
+        "input:not([disabled])",
+        "select:not([disabled])",
+        "textarea:not([disabled])",
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(","),
       portalModal,
-    );
+    ).filter((element) => {
+      return element.getClientRects().length > 0;
+    });
 
-    if (!focusable.length) return;
+    if (!focusableElements.length) return;
 
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
+    const first = focusableElements[0];
+    const last = focusableElements[focusableElements.length - 1];
 
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
@@ -540,7 +562,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ==========================================================
-  // FOOTER YEAR
+  // AUTOMATIC FOOTER YEAR
   // ==========================================================
 
   const yearElements = $$("[data-year]");
@@ -551,7 +573,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ==========================================================
-  // GLASS / CURSOR SHINE EFFECT
+  // GLASS CARD CURSOR SHINE
   // ==========================================================
 
   const glassCards = $$(".glass-shine");
@@ -584,7 +606,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // BUTTON RIPPLE
+  // BUTTON RIPPLE EFFECT
   // ==========================================================
 
   const rippleButtons = $$(".btn, [data-ripple]");
@@ -592,6 +614,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!prefersReducedMotion) {
     rippleButtons.forEach((button) => {
       button.addEventListener("pointerdown", (event) => {
+        // Do not add a pointer ripple for non-primary clicks.
+        if (event.button !== 0) return;
+
         const rect = button.getBoundingClientRect();
 
         const size = Math.max(rect.width, rect.height) * 1.4;
@@ -601,7 +626,6 @@ document.addEventListener("DOMContentLoaded", () => {
         ripple.className = "btn-ripple";
 
         ripple.style.width = `${size}px`;
-
         ripple.style.height = `${size}px`;
 
         ripple.style.left = `${event.clientX - rect.left - size / 2}px`;
@@ -617,50 +641,49 @@ document.addEventListener("DOMContentLoaded", () => {
           },
           { once: true },
         );
+
+        // Remove the ripple if its animation cannot complete.
+        window.setTimeout(() => {
+          if (ripple.isConnected) {
+            ripple.remove();
+          }
+        }, 2000);
       });
     });
   }
 
   // ==========================================================
-  // STAT COUNTERS
+  // ANIMATED STAT COUNTERS
   // ==========================================================
 
   const statNumbers = $$(".stat-num");
 
   function animateCounter(element) {
-    if (element.dataset.counted === "true") {
-      return;
-    }
+    if (element.dataset.counted === "true") return;
 
-    const rawValue = element.textContent.trim();
+    const originalText = element.textContent.trim();
 
-    const numericValue = parseFloat(rawValue.replace(/[^\d.-]/g, ""));
+    const numericValue = parseFloat(originalText.replace(/[^\d.-]/g, ""));
 
-    if (!Number.isFinite(numericValue)) {
-      return;
-    }
+    if (!Number.isFinite(numericValue)) return;
 
-    const suffix = rawValue.replace(/[-\d.,\s]/g, "");
-
-    const hasDecimal = rawValue.includes(".");
-
-    const duration = prefersReducedMotion ? 0 : 1200;
+    const suffix = originalText.replace(/[-\d.,\s]/g, "");
+    const hasDecimal = originalText.includes(".");
 
     element.dataset.counted = "true";
 
-    if (duration === 0) {
+    if (prefersReducedMotion) {
       element.textContent = `${numericValue}${suffix}`;
-
       return;
     }
 
+    const duration = 1200;
     const startTime = performance.now();
 
     function updateCounter(now) {
       const progress = Math.min((now - startTime) / duration, 1);
 
       const eased = 1 - Math.pow(1 - progress, 3);
-
       const current = numericValue * eased;
 
       element.textContent = hasDecimal
@@ -669,6 +692,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (progress < 1) {
         requestAnimationFrame(updateCounter);
+      } else {
+        // Ensure the exact final number is displayed.
+        element.textContent = `${numericValue}${suffix}`;
       }
     }
 
@@ -693,10 +719,12 @@ document.addEventListener("DOMContentLoaded", () => {
     statNumbers.forEach((stat) => {
       statObserver.observe(stat);
     });
+  } else {
+    statNumbers.forEach(animateCounter);
   }
 
   // ==========================================================
-  // ORG CHART TOGGLES
+  // ORGANISATION CHART BRANCH TOGGLES
   // ==========================================================
 
   const branchToggles = $$(".org-branch-toggle");
@@ -713,20 +741,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const isExpanded = toggle.getAttribute("aria-expanded") === "true";
 
-      toggle.setAttribute("aria-expanded", String(!isExpanded));
+      const shouldExpand = !isExpanded;
 
-      panel.classList.toggle("is-open", !isExpanded);
+      toggle.setAttribute("aria-expanded", String(shouldExpand));
 
-      const chev = $(".chev", toggle);
+      panel.classList.toggle("is-open", shouldExpand);
 
-      if (chev) {
-        chev.style.transform = !isExpanded ? "rotate(180deg)" : "";
+      const chevron = $(".chev", toggle);
+
+      if (chevron) {
+        chevron.style.transform = shouldExpand ? "rotate(180deg)" : "";
       }
     });
   });
 
   // ==========================================================
-  // ORG CHART — EXPAND ALL
+  // ORGANISATION CHART — EXPAND OR COLLAPSE ALL
   // ==========================================================
 
   const expandAll = $("#orgExpandAll");
@@ -746,10 +776,10 @@ document.addEventListener("DOMContentLoaded", () => {
           panel.classList.toggle("is-open", shouldExpand);
         }
 
-        const chev = $(".chev", toggle);
+        const chevron = $(".chev", toggle);
 
-        if (chev) {
-          chev.style.transform = shouldExpand ? "rotate(180deg)" : "";
+        if (chevron) {
+          chevron.style.transform = shouldExpand ? "rotate(180deg)" : "";
         }
       });
 
@@ -763,6 +793,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ==========================================================
   // IMAGE ERROR HANDLING
+  // Logs image-loading errors for easier debugging.
   // ==========================================================
 
   const images = $$("img");
@@ -771,15 +802,10 @@ document.addEventListener("DOMContentLoaded", () => {
     image.addEventListener("error", () => {
       image.classList.add("image-error");
 
-      console.warn(`MantraWest image could not be loaded: ${image.src}`);
+      console.warn("MantraWest image could not be loaded:", image.src);
     });
-  });
 
-  // ==========================================================
-  // LAZY IMAGE LOAD SUPPORT
-  // ==========================================================
-
-  images.forEach((image) => {
+    // Apply lazy loading unless the image already specifies it.
     if (!image.hasAttribute("loading")) {
       image.setAttribute("loading", "lazy");
     }
@@ -787,6 +813,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ==========================================================
   // PARALLAX EFFECT
+  // Elements can use data-parallax="0.08".
   // ==========================================================
 
   const parallaxElements = $$("[data-parallax]");
@@ -795,16 +822,16 @@ document.addEventListener("DOMContentLoaded", () => {
     let parallaxTicking = false;
 
     function updateParallax() {
-      const scrollY = window.scrollY;
+      const viewportCenter = window.innerHeight / 2;
 
       parallaxElements.forEach((element) => {
         const speed = parseFloat(element.dataset.parallax) || 0.08;
 
         const rect = element.getBoundingClientRect();
 
-        const center = rect.top + rect.height / 2 - window.innerHeight / 2;
+        const elementCenter = rect.top + rect.height / 2;
 
-        const offset = center * speed;
+        const offset = (elementCenter - viewportCenter) * speed;
 
         element.style.transform = `translate3d(0, ${offset}px, 0)`;
       });
@@ -812,17 +839,16 @@ document.addEventListener("DOMContentLoaded", () => {
       parallaxTicking = false;
     }
 
-    window.addEventListener(
-      "scroll",
-      () => {
-        if (parallaxTicking) return;
+    function requestParallaxUpdate() {
+      if (parallaxTicking) return;
 
-        parallaxTicking = true;
+      parallaxTicking = true;
+      requestAnimationFrame(updateParallax);
+    }
 
-        requestAnimationFrame(updateParallax);
-      },
-      { passive: true },
-    );
+    window.addEventListener("scroll", requestParallaxUpdate, { passive: true });
+
+    window.addEventListener("resize", requestParallaxUpdate);
 
     updateParallax();
   }
@@ -854,7 +880,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // TOOLTIPS
+  // TOOLTIP ACCESSIBILITY
   // ==========================================================
 
   const tooltipElements = $$("[data-tooltip]");
@@ -864,11 +890,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!tooltipText) return;
 
-    element.setAttribute("aria-label", tooltipText);
+    if (!element.hasAttribute("aria-label")) {
+      element.setAttribute("aria-label", tooltipText);
+    }
   });
 
   // ==========================================================
-  // TOAST SUPPORT
+  // TOAST NOTIFICATIONS
+  // Other scripts can call MantraWest.showToast().
   // ==========================================================
 
   let toastTimer = null;
@@ -876,7 +905,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function showToast(message, type = "success") {
     const toast = $(".toast");
 
-    if (!toast) return;
+    if (!toast) {
+      console.info("MantraWest notification:", message);
+      return;
+    }
 
     const toastMessage = $(".toast-message", toast);
 
@@ -887,17 +919,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     toast.dataset.type = type;
-
     toast.classList.add("is-visible");
 
-    clearTimeout(toastTimer);
+    window.clearTimeout(toastTimer);
 
-    toastTimer = setTimeout(() => {
+    toastTimer = window.setTimeout(() => {
       toast.classList.remove("is-visible");
     }, 3500);
   }
 
-  // Expose safely for other scripts.
+  // ==========================================================
+  // EXPOSE FUNCTIONS FOR OTHER SCRIPTS
+  // ==========================================================
+
   window.MantraWest = {
     showToast,
     openMenu,
@@ -910,31 +944,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // INITIAL PAGE STATE
   // ==========================================================
 
-  if (portalModal) {
-    portalModal.setAttribute("hidden", "");
-  }
-
-  if (menuBtn) {
-    menuBtn.setAttribute("aria-expanded", "false");
-
-    menuBtn.setAttribute("aria-label", "Open navigation");
-  }
-
-  // ==========================================================
-  // FINAL MOBILE CLEANUP
-  // ==========================================================
-
-  window.addEventListener("resize", () => {
-    if (window.innerWidth >= 1024) {
-      closeMenu();
-    }
-  });
-
-  // ==========================================================
-  // PAGE READY
-  // ==========================================================
-
   document.documentElement.classList.add("js-ready");
 
-  console.log("MantraWest website JavaScript loaded successfully.");
+  console.log(
+    `MantraWest JavaScript loaded successfully on the "${pageName}" page.`,
+  );
 });
