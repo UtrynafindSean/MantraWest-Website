@@ -19,9 +19,10 @@
   --danger: #d14343;
 
   /* Type */
-  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
-  --font-body: "Inter", "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", "Courier New", monospace;
+  /* Type */
+  --font-display: "Poppins", sans-serif;
+  --font-body: "Poppins", sans-serif;
+  --font-mono: "Poppins", sans-serif;
 
   --fs-h1: clamp(2.35rem, 1.7rem + 2.6vw, 4.1rem);
   --fs-h2: clamp(1.85rem, 1.5rem + 1.4vw, 2.75rem);
